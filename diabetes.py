@@ -1,142 +1,146 @@
-############ Import the required Libraries ##################
 import streamlit as st
 import pandas as pd
-import numpy as np
+import matplotlib.pyplot as plt
+from pathlib import Path
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.model_selection import train_test_split
-import matplotlib.pyplot as plt
-from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
-from sklearn.metrics import roc_curve, auc, precision_recall_curve
-from sklearn.metrics import precision_score, recall_score
+from sklearn.metrics import (confusion_matrix, ConfusionMatrixDisplay, roc_curve, auc,
+                             accuracy_score, precision_score, recall_score, f1_score)
 
-def main():
-    st.title("Predicting Diabetes Web App")
-    st.markdown("Affected by Diabetes or not ?")
-    
-    st.sidebar.title("Model Selection Panel")
-    st.sidebar.markdown("Choose your model and its parameters")
-    
-    @st.cache_data
-    def load_data():# Function to load our dataset
-        data = pd.read_csv("diabetes.csv")
-        return data
-     
-    def split(df):# Split the data to 'train and test' sets
-        #req_cols = ['Pregnancies', 'Insulin', 'BMI', 'Age','Glucose','BloodPressure','DiabetesPedigreeFunction']
-        #x = df[req_cols] # Features for our algorithm
-        y = df.Outcome
-        x = df.drop(columns=['Outcome'])
-        x_train, x_test, y_train, y_test = train_test_split(x, y,stratify=y, test_size=0.3, random_state=0)
-        return x_train, x_test, y_train, y_test
-     
-    def plot_metrics(metrics_list, model, x_test, y_test, class_names):
-        if 'Confusion Matrix' in metrics_list:
-            st.subheader("Confusion Matrix")
-            
-            # Manually plot confusion matrix
-            cm = confusion_matrix(y_test, model.predict(x_test))
-            disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=class_names)
-            disp.plot(cmap="Blues")
-            st.pyplot(plt.gcf())  # Render the current matplotlib figure
+st.set_page_config(page_title='Predicting Diabetes Web App', layout='wide')
+st.title('Predicting Diabetes Web App')
+st.write('Diabetes classification and single-record prediction (for educational use, not medical diagnosis).')
 
-        if 'ROC Curve' in metrics_list:
-            st.subheader("ROC Curve")
-            
-            # Compute ROC curve and AUC
-            y_prob = model.predict_proba(x_test)[:, 1]  # Assuming binary classification
-            fpr, tpr, _ = roc_curve(y_test, y_prob)
-            roc_auc = auc(fpr, tpr)
-            plt.figure()
-            plt.plot(fpr, tpr, label=f"ROC curve (AUC = {roc_auc:.2f})")
-            plt.plot([0, 1], [0, 1], "k--", label="Random guess")
-            plt.xlabel("False Positive Rate")
-            plt.ylabel("True Positive Rate")
-            plt.title("Receiver Operating Characteristic")
-            plt.legend(loc="lower right")
-            st.pyplot(plt.gcf())  # Render the current matplotlib figure
+@st.cache_data
+def load_data():
+    path = Path(__file__).resolve().parent / 'diabetes.csv'
+    return pd.read_csv(path)
 
-        if 'Precision-Recall Curve' in metrics_list:
-            st.subheader("Precision-Recall Curve")
-            
-            # Compute Precision-Recall curve
-            y_prob = model.predict_proba(x_test)[:, 1]  # Assuming binary classification
-            precision, recall, _ = precision_recall_curve(y_test, y_prob)
-            plt.figure()
-            plt.plot(recall, precision, marker=".", label="Precision-Recall Curve")
-            plt.xlabel("Recall")
-            plt.ylabel("Precision")
-            plt.title("Precision-Recall Curve")
-            plt.legend(loc="lower left")
-            st.pyplot(plt.gcf())  # Render the current matplotlib figure
- 
-    df=load_data() 
-    class_names = ['Non-Diabetes', 'Diabetes']
-    x_train, x_test, y_train, y_test = split(df)
- 
-    st.sidebar.subheader("Select your Classifier")
-    classifier = st.sidebar.selectbox("Classifier", ("Decision Tree", "Logistic Regression", "Random Forest"))
+try:
+    df = load_data()
+except FileNotFoundError:
+    st.error('找不到 diabetes.csv，請將它與 diabetes.py 放在同一個資料夾。')
+    st.stop()
 
-    if classifier == 'Decision Tree':
-        st.sidebar.subheader("Model parameters")
-        
-        #choose parameters
-        criterion= st.sidebar.radio("Criterion(measures the quality of split)", ("gini", "entropy"), key='criterion')
-        splitter = st.sidebar.radio("Splitter (How to split at each node?)", ("best", "random"), key='splitter')
-        metrics = st.sidebar.multiselect("Select your metrics : ", ('Confusion Matrix', 'ROC Curve', 'Precision-Recall Curve'))
- 
-        if st.sidebar.button("Classify", key='classify'):
-            st.subheader("Decision Tree Results")
-            model = DecisionTreeClassifier(criterion=criterion, splitter=splitter)
-            model.fit(x_train, y_train)
-            accuracy = model.score(x_test, y_test)
-            y_pred = model.predict(x_test)
-            st.write("Accuracy: ",  round(accuracy * 100, 2),"%")
-            st.write("Precision: ", round(precision_score(y_test, y_pred), 2))
-            st.write("Recall: ", round(recall_score(y_test, y_pred), 2))
-            plot_metrics(metrics, model, x_test, y_test, class_names)
- 
-    if classifier == 'Logistic Regression':
-        st.sidebar.subheader("Model Parameters")
-        C = st.sidebar.number_input("C (Regularization parameter)", 0.01, 10.0, step=0.01, key='C_LR')
-        max_iter = st.sidebar.slider("Maximum number of iterations", 100, 500, key='max_iter')
+if 'Outcome' not in df.columns:
+    st.error('資料集缺少 Outcome 欄位。')
+    st.stop()
 
-        metrics = st.sidebar.multiselect("Select your metrics?", ('Confusion Matrix', 'ROC Curve', 'Precision-Recall Curve'))
+features = df.drop(columns=['Outcome'])
+target = df['Outcome']
+if features.isnull().any().any() or target.isnull().any():
+    st.error('資料中有缺失值，請先清理資料。')
+    st.stop()
 
-        if st.sidebar.button("Classify", key='classify'):
-            st.subheader("Logistic Regression Results")
-            model = LogisticRegression(C=C, penalty='l2', max_iter=max_iter)
-            model.fit(x_train, y_train)
-            accuracy = model.score(x_test, y_test)
-            y_pred = model.predict(x_test)
-            st.write("Accuracy: ",  round(accuracy * 100, 2),"%")
-            st.write("Precision: ", round(precision_score(y_test, y_pred), 2))
-            st.write("Recall: ", round(recall_score(y_test, y_pred), 2))
-            plot_metrics(metrics, model, x_test, y_test, class_names)
- 
-    if classifier == 'Random Forest':
-        st.sidebar.subheader("Model Hyperparameters")
-        n_estimators = st.sidebar.number_input("The number of trees in the forest", 100, 5000, step=10, key='n_estimators')
-        max_depth = st.sidebar.number_input("The maximum depth of the tree", 1, 20, step=1, key='max_depth')
-        bootstrap = st.sidebar.radio("Bootstrap samples when building trees", ('True', 'False'), key='bootstrap')
-        
-        metrics = st.sidebar.multiselect("What metrics to plot?", ('Confusion Matrix', 'ROC Curve', 'Precision-Recall Curve'))
+st.sidebar.title('Model Selection Panel')
+classifier = st.sidebar.selectbox('Classifier', ['Decision Tree', 'Logistic Regression', 'Random Forest'])
+train_ratio = st.sidebar.slider('Training data ratio (%)', 50, 90, 70, 5)
+st.sidebar.caption(f'Train: {train_ratio}% | Test: {100 - train_ratio}%')
 
-        if st.sidebar.button("Classify", key='classify'):
-            st.subheader("Random Forest Results")
-            model = RandomForestClassifier(n_estimators=n_estimators, max_depth=max_depth, bootstrap=bootstrap=='True', n_jobs=-1)
-            model.fit(x_train, y_train)
-            accuracy = model.score(x_test, y_test)
-            y_pred = model.predict(x_test)
-            st.write("Accuracy: ",  round(accuracy * 100, 2),"%")
-            st.write("Precision: ", round(precision_score(y_test, y_pred), 2))
-            st.write("Recall: ", round(recall_score(y_test, y_pred), 2))
-            plot_metrics(metrics, model, x_test, y_test, class_names)
+params = {}
+if classifier == 'Decision Tree':
+    params['criterion'] = st.sidebar.radio('Criterion', ['gini', 'entropy'])
+    params['splitter'] = st.sidebar.radio('Splitter', ['best', 'random'])
+elif classifier == 'Logistic Regression':
+    params['C'] = st.sidebar.number_input('C (regularization)', min_value=0.01, max_value=10.0, value=1.0, step=0.01)
+    params['max_iter'] = st.sidebar.slider('Maximum iterations', 100, 1000, 500, 50)
+else:
+    params['n_estimators'] = st.sidebar.number_input('Number of trees', min_value=10, max_value=5000, value=100, step=10)
+    params['max_depth'] = st.sidebar.number_input('Maximum depth', min_value=1, max_value=20, value=5)
+    params['bootstrap'] = st.sidebar.radio('Bootstrap', [True, False])
 
-    if st.sidebar.checkbox("Show raw data", False):
-        st.subheader("Diabetes Raw Dataset")
-        st.write(df) 
- 
-if __name__ == '__main__':
- main()
+metrics = st.sidebar.multiselect('Charts to show', ['Confusion Matrix', 'ROC Curve'], default=['Confusion Matrix', 'ROC Curve'])
+
+# Cache models by algorithm, parameters, and training ratio. Switching the prediction
+# input or returning to a previously trained configuration never refits the model.
+@st.cache_resource(show_spinner='Training model...')
+def train_model(model_name, params_tuple, ratio):
+    config = dict(params_tuple)
+    x_train, x_test, y_train, y_test = train_test_split(
+        features, target, train_size=ratio / 100, random_state=0, stratify=target
+    )
+    if model_name == 'Decision Tree':
+        model = DecisionTreeClassifier(**config, random_state=0)
+    elif model_name == 'Logistic Regression':
+        model = LogisticRegression(**config, random_state=0)
+    else:
+        model = RandomForestClassifier(**config, random_state=0, n_jobs=-1)
+    model.fit(x_train, y_train)
+    return model, x_test, y_test
+
+key = (classifier, tuple(sorted(params.items())), train_ratio)
+if 'trained_keys' not in st.session_state:
+    st.session_state.trained_keys = set()
+
+if st.sidebar.button('Train / Classify'):
+    st.session_state.trained_keys.add(key)
+
+if key in st.session_state.trained_keys:
+    model, x_test, y_test = train_model(*key)
+    y_pred = model.predict(x_test)
+    st.subheader(f'{classifier} Results')
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric('Accuracy', f'{accuracy_score(y_test, y_pred):.3f}')
+    c2.metric('Precision', f'{precision_score(y_test, y_pred, zero_division=0):.3f}')
+    c3.metric('Recall', f'{recall_score(y_test, y_pred, zero_division=0):.3f}')
+    c4.metric('F1 Score', f'{f1_score(y_test, y_pred, zero_division=0):.3f}')
+
+    if 'Confusion Matrix' in metrics:
+        st.subheader('Confusion Matrix')
+        fig, ax = plt.subplots()
+        cm = confusion_matrix(y_test, y_pred, labels=[0, 1])
+        ConfusionMatrixDisplay(cm, display_labels=['Non-Diabetes', 'Diabetes']).plot(ax=ax, cmap='Blues')
+        st.pyplot(fig)
+        plt.close(fig)
+
+    if 'ROC Curve' in metrics:
+        st.subheader('ROC Curve')
+        proba = model.predict_proba(x_test)[:, list(model.classes_).index(1)]
+        fpr, tpr, _ = roc_curve(y_test, proba)
+        fig, ax = plt.subplots()
+        ax.plot(fpr, tpr, label=f'AUC = {auc(fpr, tpr):.3f}')
+        ax.plot([0, 1], [0, 1], 'k--')
+        ax.set(xlabel='False Positive Rate', ylabel='True Positive Rate', title='ROC Curve')
+        ax.legend()
+        st.pyplot(fig)
+        plt.close(fig)
+else:
+    st.info('請先在左側按 Train / Classify 訓練目前的模型。')
+
+st.divider()
+st.subheader('Single Record Prediction')
+st.caption('請輸入一筆資料。按下 Predict 只會使用已訓練模型，不會重新訓練。')
+with st.form('single_prediction'):
+    columns = st.columns(2)
+    values = {}
+    for i, feature in enumerate(features.columns):
+        with columns[i % 2]:
+            default = float(features[feature].median())
+            values[feature] = st.number_input(feature, value=default, format='%.4f', key=f'input_{feature}')
+    submitted = st.form_submit_button('Predict')
+
+if submitted:
+    if key not in st.session_state.trained_keys:
+        st.warning('請先按左側 Train / Classify 訓練所選模型。')
+    else:
+        model, _, _ = train_model(*key)
+        sample = pd.DataFrame([values], columns=features.columns)
+        prediction = int(model.predict(sample)[0])
+        probabilities = model.predict_proba(sample)[0]
+        st.subheader('Prediction Result')
+        st.success('Prediction: Diabetes (1)' if prediction == 1 else 'Prediction: Non-Diabetes (0)')
+        fig, ax = plt.subplots()
+        prob_by_class = dict(zip(model.classes_, probabilities))
+        ax.pie([prob_by_class.get(0, 0), prob_by_class.get(1, 0)],
+               labels=['Non-Diabetes', 'Diabetes'], autopct='%1.1f%%', startangle=90)
+        ax.axis('equal')
+        ax.set_title(f'{classifier} - Predicted Class Probabilities')
+        st.pyplot(fig)
+        plt.close(fig)
+        st.caption('機率是模型估計值，不代表醫療診斷或實際罹病風險。')
+
+if st.sidebar.checkbox('Show raw data'):
+    st.subheader('Diabetes Raw Dataset')
+    st.dataframe(df)
